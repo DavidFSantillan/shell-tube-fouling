@@ -1,0 +1,24 @@
+{
+  "title": "Shell & Tube Heat Exchanger Fouling Simulation (Epstein Model)",
+  "id": "fdavidsantillan/shell-tube-fouling-simulation",
+  "licenses": [{ "name": "CC0-1.0" }],
+  "description": "Simulated fouling resistance time-series for a Shell & Tube heat exchanger. Generated using the Epstein (1993) Arrhenius + shear-removal ODE model. 16 temperature scenarios (50–125°C), hourly resolution over 1 year. Includes fouling resistance Rf, degraded U, heat duty, thermal efficiency, and pressure drop. Suitable for predictive maintenance ML tasks.",
+  "keywords": [
+    "heat exchanger",
+    "fouling",
+    "thermodynamics",
+    "simulation",
+    "predictive maintenance",
+    "chemical engineering",
+    "time series",
+    "physics",
+    "arrhenius",
+    "shell and tube"
+  ],
+  "resources": [
+    {
+      "path": "shell_tube_fouling_dataset.csv",
+      "description": "Main dataset: 16 temperature scenarios x 8760 hourly timesteps = ~140k rows. Columns: T_in_C, T_in_K, time_h, Re, u_m_s, tau_w_Pa, Rf_m2K_W, U_overall_W_m2K, U_clean_W_m2K, Q_W, Q_clean_W, thermal_efficiency, dP_Pa, fouling_factor_TEMA."
+    }
+  ]
+}
