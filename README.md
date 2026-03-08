@@ -2,6 +2,7 @@
 
 Simulated dataset of **thermal fouling resistance over time** in a Shell & Tube heat exchanger, generated using the **Epstein (1993) Arrhenius + shear-removal model**. Designed for predictive maintenance, thermal degradation modeling, and ML benchmarking.
 
+![Shell & Tube Heat Exchanger](assets/shell_tube_exchanger.png)
 ---
 
 ## 📐 Physical Model
@@ -48,7 +49,7 @@ This is an **asymptotic fouling model**: deposition dominates at startup, remova
 | Reynolds number | ~16,000 (turbulent) | — |
 | T_in range | 50 – 125 | °C |
 | Simulation horizon | 8,760 | h (1 year) |
-
+| Mass flow rate (nominal) | 3.0 – 7.0 | kg/s |
 ---
 
 ## 📊 Dataset Columns
@@ -69,7 +70,13 @@ This is an **asymptotic fouling model**: deposition dominates at startup, remova
 | `thermal_efficiency` | — | Q / Q_clean ratio |
 | `dP_Pa` | Pa | Pressure drop (Darcy-Weisbach) |
 | `fouling_factor_TEMA` | — | TEMA fouling severity class (L/H) |
-
+| `scenario_id`         | —         | Unique scenario identifier (e.g. T100_Q5.0) |
+| `m_dot_nominal_kg_s`  | kg/s      | Nominal mass flow rate — scenario variable |
+| `R_wall_m2K_W`        | m²·K/W    | Tube wall resistance — grows with corrosion (Arrhenius) |
+| `U_total_W_m2K`       | W/m²·K    | Overall HTC including fouling + wall corrosion |
+| `Q_total_W`           | W         | Heat duty accounting for all degradation sources |
+| `efficiency_total`    | —         | Q_total / Q_clean — combined degradation efficiency |
+| `degradation_source`  | —         | Dominant degradation: `fouling`, `corrosion`, or `combined` |
 ---
 
 ## 📚 References
@@ -78,7 +85,8 @@ This is an **asymptotic fouling model**: deposition dominates at startup, remova
 2. **Polley, G.T., Wilson, D.I., Yeap, B.L., Pugh, S.J.** (2002). Evaluation of laboratory fouling data for application to crude oil preheat trains. *Chemical Engineering Research and Design*, 80(7), 713–727.
 3. **Kern, D.Q., Seaton, R.E.** (1959). A theoretical analysis of thermal surface fouling. *British Chemical Engineering*, 4(5), 258–262.
 4. **Incropera, F.P., DeWitt, D.P.** (2002). *Fundamentals of Heat and Mass Transfer*, 5th ed. Wiley.
-
+5. **Sinnott, R.K.** (2005). *Chemical Engineering Design*, 4th ed. Elsevier.
+   (tube wall corrosion resistance model)
 ---
 
 ## 🚀 Reproduce It

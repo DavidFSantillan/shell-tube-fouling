@@ -5,6 +5,13 @@ Model: Arrhenius-based deposition + shear-driven removal (Epstein, 1993)
 Exchanger: Shell & Tube, single-pass, counter-flow
 Variable: Fluid inlet temperature (T_in)
 
+Scenario variables
+------------------
+- Fluid inlet temperature : 50 – 125 °C  (16 values, step 5 °C)
+- Mass flow rate          : 3.0 – 7.0 kg/s (5 values)
+- Total scenarios         : 80 (16 × 5)
+- Total rows              : ~700,800 (80 × 8760 hourly timesteps)
+
 References
 ----------
 - Epstein, N. (1993). The fouling of heat exchangers. In: 14th International
@@ -25,7 +32,7 @@ import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
 import os
-
+import itertools
 # ---------------------------------------------------------------------------
 # 1. GEOMETRY — Shell & Tube heat exchanger
 # ---------------------------------------------------------------------------
@@ -64,117 +71,119 @@ A_rem  = 7.3e-7    # [m²·K/W/(Pa·s)]  Removal coeff (τ≈3000h at typical τ
 Rf_max = 5.0e-4    # [m²·K/W]   Maximum fouling resistance (physical ceiling)
 
 # ---------------------------------------------------------------------------
-# 4. CLEAN HEAT TRANSFER COEFFICIENT — Dittus-Boelter correlation
+# 4. SCENARIO GRID
 # ---------------------------------------------------------------------------
-u_tube = m_dot / (rho * A_flow)          # [m/s] flow velocity
-Re     = rho * u_tube * D_i / mu         # [-]   Reynolds number
-Nu     = 0.023 * Re**0.8 * Pr**0.4       # [-]   Nusselt (heating, n=0.4)
-h_i    = Nu * k_f / D_i                  # [W/m²·K] inner HTC
-U_clean = h_i                            # Simplified: tube-side controlling
+T_in_values  = np.arange(50, 130, 5)              # 16 temperatures [C]
+mdot_values  = np.array([3.0, 4.0, 5.0, 6.0, 7.0])  # 5 flow rates [kg/s]
+scenarios    = list(itertools.product(T_in_values, mdot_values))  # 80 total
 
+# ---------------------------------------------------------------------------
+# 5. TIME GRID
+# ---------------------------------------------------------------------------
+t_end_h  = 8760.0
+n_points = 8760
+t_eval_h = np.linspace(0.0, t_end_h, n_points)
+t_eval_s = t_eval_h * 3600.0
 
-def wall_shear_stress(Re, rho, u):
-    """
-    Blasius friction factor for turbulent flow in smooth tubes.
-    f = 0.316 * Re^(-0.25)  valid for 4000 < Re < 10^5
-    τ_w = f/8 * ρ * u²
-    """
+# ---------------------------------------------------------------------------
+# 6. HELPER FUNCTIONS
+# ---------------------------------------------------------------------------
+def compute_htc(m_dot):
+    u  = m_dot / (rho * A_flow)
+    Re = rho * u * D_i / mu
+    Nu = 0.023 * Re**0.8 * Pr**0.4
+    h  = Nu * k_f / D_i
+    return h, u, Re
+
+def wall_shear_stress(Re, u):
     f = 0.316 * Re**(-0.25)
     return (f / 8.0) * rho * u**2
 
-
-# ---------------------------------------------------------------------------
-# 5. ODE — dRf/dt = deposition_rate - removal_rate
-# ---------------------------------------------------------------------------
 def dRf_dt(t, Rf, T_K, tau_w):
-    """
-    Fouling resistance ODE (Epstein model):
-        dRf/dt = A_dep * exp(-E_dep / RT) - A_rem * tau_w * Rf
-    """
-    deposition = A_dep * np.exp(-E_dep / (R_gas * T_K))
-    removal    = A_rem * tau_w * Rf[0]
-    return [deposition - removal]
-
+    dep = A_dep * np.exp(-E_dep / (R_gas * T_K))
+    rem = A_rem * tau_w * Rf[0]
+    return [dep - rem]
 
 # ---------------------------------------------------------------------------
-# 6. SIMULATION — sweep over T_in values
+# 7. SIMULATION LOOP
 # ---------------------------------------------------------------------------
-T_in_values_C = np.arange(50, 130, 5)      # [°C] 50 → 125 °C (16 scenarios)
-t_start = 0.0
-t_end   = 8760.0 * 3600.0                  # [s]  1 year
-n_points = 8760                             # hourly resolution
-t_eval  = np.linspace(t_start, t_end, n_points)
+print("=" * 65)
+print("  Shell & Tube Fouling Simulation — Epstein (1993)")
+print(f"  Temperatures  : {len(T_in_values)} values ({T_in_values[0]}–{T_in_values[-1]} C)")
+print(f"  Flow rates    : {len(mdot_values)} values ({mdot_values[0]}–{mdot_values[-1]} kg/s)")
+print(f"  Total scenarios: {len(scenarios)}")
+print(f"  Expected rows  : ~{len(scenarios) * n_points:,}")
+print("=" * 65 + "\n")
 
 records = []
 
-print(f"{'='*60}")
-print(f"  Shell & Tube Fouling Simulation — Epstein (1993) model")
-print(f"  Re = {Re:.0f}  |  u = {u_tube:.2f} m/s  |  U_clean = {U_clean:.1f} W/m²K")
-print(f"  Scenarios: {len(T_in_values_C)} temperature values")
-print(f"{'='*60}\n")
-
-for T_C in T_in_values_C:
-    T_K   = T_C + 273.15
-    tau_w = wall_shear_stress(Re, rho, u_tube)
+for i, (T_C, m_dot) in enumerate(scenarios):
+    T_K    = T_C + 273.15
+    U_clean, u, Re = compute_htc(m_dot)
+    tau_w  = wall_shear_stress(Re, u)
+    f_d    = 0.316 * Re**(-0.25)
+    dP     = f_d * (L / D_i) * 0.5 * rho * u**2
 
     sol = solve_ivp(
         fun      = dRf_dt,
-        t_span   = (t_start, t_end),
+        t_span   = (t_eval_s[0], t_eval_s[-1]),
         y0       = [0.0],
-        t_eval   = t_eval,
+        t_eval   = t_eval_s,
         args     = (T_K, tau_w),
         method   = "RK45",
-        max_step = 3600.0
+        max_step = 3600.0,
     )
 
-    Rf_arr = np.clip(sol.y[0], 0.0, Rf_max)    # physical ceiling
+    Rf_arr    = np.clip(sol.y[0], 0.0, Rf_max)
+    U_overall = 1.0 / (1.0 / U_clean + Rf_arr)
+    dT_lm     = 40.0
+    Q_arr     = U_overall * A_ht * dT_lm
+    Q_clean   = U_clean   * A_ht * dT_lm
+    eff_arr   = Q_arr / Q_clean
 
-    # Derived quantities
-    U_arr      = 1.0 / (1.0 / U_clean + Rf_arr)          # [W/m²K]  overall HTC
-    dT_lm      = 40.0                                      # [K]  assumed constant LMTD
-    Q_arr      = U_arr * A_ht * dT_lm                     # [W]  heat duty
-    Q_clean    = U_clean * A_ht * dT_lm
-    eff_arr    = Q_arr / Q_clean                           # [-]  thermal efficiency
-    # Pressure drop (Darcy-Weisbach + fouling narrows effective diameter)
-    f_darcy    = 0.316 * Re**(-0.25)
-    dP_arr     = f_darcy * (L / D_i) * 0.5 * rho * u_tube**2  # Pa (constant D approx)
-
-    hours_arr  = sol.t / 3600.0
-
-    for i in range(len(hours_arr)):
+    for j in range(len(sol.t)):
         records.append({
+            # Scenario identifiers
+            "scenario_id"         : f"T{int(T_C)}_Q{m_dot:.1f}",
             "T_in_C"              : round(float(T_C), 1),
             "T_in_K"              : round(float(T_K), 2),
-            "time_h"              : round(float(hours_arr[i]), 2),
+            "m_dot_nominal_kg_s"  : round(float(m_dot), 1),
+            "time_h"              : round(float(sol.t[j] / 3600.0), 2),
+            # Hydraulics
             "Re"                  : round(float(Re), 1),
-            "u_m_s"               : round(float(u_tube), 4),
+            "u_m_s"               : round(float(u), 4),
             "tau_w_Pa"            : round(float(tau_w), 4),
-            "Rf_m2K_W"            : round(float(Rf_arr[i]), 8),
-            "U_overall_W_m2K"     : round(float(U_arr[i]), 4),
+            "dP_Pa"               : round(float(dP), 2),
+            # Fouling
+            "Rf_m2K_W"            : round(float(Rf_arr[j]), 8),
+            # Thermal performance
             "U_clean_W_m2K"       : round(float(U_clean), 4),
-            "Q_W"                 : round(float(Q_arr[i]), 2),
+            "U_overall_W_m2K"     : round(float(U_overall[j]), 4),
+            "Q_W"                 : round(float(Q_arr[j]), 2),
             "Q_clean_W"           : round(float(Q_clean), 2),
-            "thermal_efficiency"  : round(float(eff_arr[i]), 6),
-            "dP_Pa"               : round(float(dP_arr), 2),
-            "fouling_factor_TEMA" : "L" if Rf_arr[i] < 1.76e-4 else "H",
+            "thermal_efficiency"  : round(float(eff_arr[j]), 6),
+            "fouling_factor_TEMA" : "L" if Rf_arr[j] < 1.76e-4 else "H",
         })
 
-    Rf_final = Rf_arr[-1]
-    print(f"  T_in={T_C:5.1f}°C | Rf_final={Rf_final:.4e} m²K/W "
-          f"| U_final={1/(1/U_clean+Rf_final):.1f} W/m²K "
-          f"| η={1/(1+U_clean*Rf_final):.3f}")
+    if (i + 1) % 10 == 0 or i == 0:
+        print(f"  [{i+1:2d}/{len(scenarios)}] "
+              f"T={T_C:.0f}C  m_dot={m_dot:.1f}kg/s  "
+              f"Re={Re:.0f}  Rf_final={Rf_arr[-1]:.3e}  "
+              f"eta={eff_arr[-1]:.3f}")
 
 # ---------------------------------------------------------------------------
-# 7. EXPORT
+# 8. EXPORT
 # ---------------------------------------------------------------------------
 os.makedirs("output", exist_ok=True)
 df = pd.DataFrame(records)
 out_path = "output/shell_tube_fouling_dataset.csv"
 df.to_csv(out_path, index=False)
 
-print(f"\n{'='*60}")
-print(f"  Dataset saved → {out_path}")
-print(f"  Rows: {len(df):,}  |  Columns: {len(df.columns)}")
-print(f"  Temperature scenarios: {df['T_in_C'].nunique()}")
-print(f"  Time span: {df['time_h'].min():.0f} – {df['time_h'].max():.0f} h")
-print(f"{'='*60}")
+print(f"\n{'='*65}")
+print(f"  Dataset saved  -> {out_path}")
+print(f"  Rows           : {len(df):,}")
+print(f"  Columns        : {len(df.columns)}")
+print(f"  Scenarios      : {df['scenario_id'].nunique()}")
+print(f"  Temp range     : {df['T_in_C'].min()} – {df['T_in_C'].max()} C")
+print(f"  Flow range     : {df['m_dot_nominal_kg_s'].min()} – {df['m_dot_nominal_kg_s'].max()} kg/s")
+print(f"{'='*65}")
